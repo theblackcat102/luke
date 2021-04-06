@@ -112,20 +112,21 @@ class WikipediaPretrainingDataset(object):
             entity_position_ids=tf.io.FixedLenSequenceFeature([], tf.int64, allow_missing=True),
             page_id=tf.io.FixedLenFeature([1], tf.int64),
         )
-        dataset = tf.data.TFRecordDataset(
-            [os.path.join(self._dataset_dir, DATASET_FILE)],
-            compression_type="GZIP",
-            num_parallel_reads=num_parallel_reads,
-        )
-        dataset = dataset.repeat()
-        dataset = dataset.shuffle(shuffle_buffer_size, seed=shuffle_seed)
-        dataset = dataset.skip(skip)
-        dataset = dataset.shard(num_workers, worker_index)
-        dataset = dataset.map(functools.partial(tf.io.parse_single_example, features=features))
-        it = tf.compat.v1.data.make_one_shot_iterator(dataset)
-        it = it.get_next()
 
         with tf.compat.v1.Session() as sess:
+            dataset = tf.data.TFRecordDataset(
+                [os.path.join(self._dataset_dir, DATASET_FILE)],
+                compression_type="GZIP",
+                num_parallel_reads=num_parallel_reads,
+            )
+            dataset = dataset.repeat()
+            dataset = dataset.shuffle(shuffle_buffer_size, seed=shuffle_seed)
+            dataset = dataset.skip(skip)
+            dataset = dataset.shard(num_workers, worker_index)
+            dataset = dataset.map(functools.partial(tf.io.parse_single_example, features=features))
+            it = tf.compat.v1.data.make_one_shot_iterator(dataset)
+            it = it.get_next()
+
             try:
                 while True:
                     obj = sess.run(it)

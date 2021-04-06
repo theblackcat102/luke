@@ -29,6 +29,18 @@ from luke.utils.model_utils import ENTITY_VOCAB_FILE
 
 logger = logging.getLogger(__name__)
 
+def freeze_partial_weights(model):
+    for name, params in model.named_parameters():
+        if 'embeddings' in name:
+            params.requires_grad = False
+    for params in model.lm_head.parameters():
+        params.requires_grad = False
+    for param in model.entity_embeddings.parameters():
+        param.requires_grad = True
+    for param in model.entity_predictions.parameters():
+        param.requires_grad = True
+
+    return model
 
 @click.command()
 @click.argument("dataset_dir")
@@ -143,6 +155,7 @@ def start_pretraining_worker(local_rank: int, args):
 
 def run_pretraining(args):
     if args.parallel and args.local_rank == -1:
+        print('start parallel')
         run_parallel_pretraining(args)
         return
 
@@ -182,7 +195,7 @@ def run_pretraining(args):
 
     entity_vocab = dataset_list[0].entity_vocab
     config = LukeConfig(
-        entity_vocab_size=entity_vocab.size,
+        entity_vocab_size=274478,
         bert_model_name=args.bert_model_name,
         entity_emb_size=args.entity_emb_size,
         **bert_config.to_dict(),
@@ -224,6 +237,8 @@ def run_pretraining(args):
             param.requires_grad = True
         for param in model.entity_predictions.parameters():
             param.requires_grad = True
+
+    model = freeze_partial_weights(model)
 
     model.to(device)
 
@@ -338,7 +353,7 @@ def run_pretraining(args):
 
     if args.local_rank == -1 or worker_index == 0:
         summary_writer = SummaryWriter(args.log_dir)
-        pbar = tqdm(total=num_train_steps, initial=global_step)
+        pbar = tqdm(total=num_train_steps, initial=global_step, dynamic_ncols=True)
 
     tr_loss = 0
     accumulation_count = 0
@@ -466,8 +481,10 @@ def run_parallel_pretraining(args):
     current_env["WORLD_SIZE"] = str(num_workers * args.num_nodes)
     current_env["OMP_NUM_THREADS"] = str(1)
     processes = []
+
     for local_rank in range(num_workers):
-        cmd = ["luke", "start-pretraining-worker", f"--local-rank={local_rank}", f"--args={json.dumps(vars(args))}"]
+        cmd = ["python","-m","luke.cli", "start-pretraining-worker", f"--local-rank={local_rank}", f"--args={json.dumps(vars(args))}"]
+        print(' '.join(cmd))
         current_env["RANK"] = str(num_workers * args.node_rank + local_rank)
         current_env["LOCAL_RANK"] = str(local_rank)
         process = subprocess.Popen(cmd, env=current_env)

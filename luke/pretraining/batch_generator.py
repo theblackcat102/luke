@@ -337,3 +337,27 @@ class MultilingualBatchGenerator(LukePretrainingBatchGenerator):
                 yield next(g)
             except StopIteration:
                 break
+
+
+if __name__ == '__main__':
+    import torch
+    batch_generator_args = dict(
+        batch_size=28,
+        masked_lm_prob=0.15,
+        masked_entity_prob=0.3,
+        whole_word_masking=False,
+        unmasked_word_prob=0,
+        random_word_prob=0.1,
+        unmasked_entity_prob=0,
+        random_entity_prob=0.1,
+        mask_words_in_entity_span=True,
+        num_workers=10,
+        worker_index=0,
+    )
+    device = 'cuda'
+    m = torch.nn.Linear(10, 10)
+    m.cuda()
+    batch_generator = LukePretrainingBatchGenerator('wikipedia_pretrain_dataset', **batch_generator_args)
+    for batch in batch_generator.generate_batches():
+        batch = {k: torch.from_numpy(v).to(device) for k, v in batch.items()}
+        print(batch.keys())
