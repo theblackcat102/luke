@@ -128,5 +128,8 @@ from .entity_span_qa.main import cli as entity_span_qa_cli
 
 cli.add_command(entity_span_qa_cli)
 
+from .entity_linking.main import cli as entity_linking_cli
+cli.add_command(entity_linking_cli)
+
 if __name__ == "__main__":
     cli()
