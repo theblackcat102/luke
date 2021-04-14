@@ -11,19 +11,25 @@ class EntityEmbeddings(nn.Module):
         super(EntityEmbeddings, self).__init__()
         self.config = config
 
-        self.entity_embeddings = nn.Embedding(config.entity_vocab_size, config.hidden_size, padding_idx=0)
+        self.entity_embeddings = nn.Embedding(config.entity_vocab_size, config.entity_emb_size, padding_idx=0)
+        if config.entity_emb_size != config.hidden_size:
+            self.entity_embedding_dense = nn.Linear(config.entity_emb_size, config.hidden_size, bias=False)
+
         self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
         self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
-        self.mask_embedding = nn.Parameter(torch.zeros(1, config.hidden_size))
 
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-    def forward(self, entity_ids, position_ids, token_type_ids):
+    def forward(
+        self, entity_ids: torch.LongTensor, position_ids: torch.LongTensor, token_type_ids: torch.LongTensor = None
+    ):
+        if token_type_ids is None:
+            token_type_ids = torch.zeros_like(entity_ids)
+
         entity_embeddings = self.entity_embeddings(entity_ids)
-        entity_embeddings.masked_scatter_(
-            (entity_ids == 1).unsqueeze(-1), self.mask_embedding.expand_as(entity_embeddings)
-        )
+        if self.config.entity_emb_size != self.config.hidden_size:
+            entity_embeddings = self.entity_embedding_dense(entity_embeddings)
 
         position_embeddings = self.position_embeddings(position_ids.clamp(min=0))
         position_embedding_mask = (position_ids != -1).type_as(position_embeddings).unsqueeze(-1)

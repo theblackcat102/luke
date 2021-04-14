@@ -15,7 +15,7 @@ from tqdm import tqdm
 from transformers import WEIGHTS_NAME
 from wikipedia2vec.dump_db import DumpDB
 
-from luke.utils.entity_vocab import MASK_TOKEN, PAD_TOKEN
+from luke.utils.entity_vocab import MASK_TOKEN, PAD_TOKEN, UNK_TOKEN
 
 from ..utils.trainer import Trainer, trainer_args
 from .model import LukeForEntityDisambiguation
@@ -39,7 +39,7 @@ def cli():
 @click.option('--mentiondb-file', type=click.Path(exists=True), default='/mnt/usbdisk1/entity_linking/data-3/mention_db_from_p_e_m_v2')
 @click.option('--titles-file', type=click.Path(exists=True), default='/mnt/usbdisk1/entity_linking/data-3/enwiki_20181220_titles.txt')
 @click.option('--redirects-file', type=click.Path(exists=True), default='/mnt/usbdisk1/entity_linking/data-3/enwiki_20181220_redirects.tsv')
-@click.option('-t', '--test-set', default=['test_b', 'ace2004', 'aquaint', 'msnbc', 'wikipedia', 'clueweb'],
+@click.option('-t', '--test-set', default=['test_a', 'test_b', 'ace2004', 'aquaint', 'msnbc', 'wikipedia'],
               multiple=True)
 @click.option('--do-train/--no-train', default=True)
 @click.option('--do-eval/--no-eval', default=True)
@@ -78,7 +78,7 @@ def run(common_args, **task_args):
         entity_titles = pickle.load(f)
     
     logger.info('Building Entity Vocab')
-    entity_vocab = {PAD_TOKEN: 0, MASK_TOKEN: 1}
+    entity_vocab = {PAD_TOKEN: 0, MASK_TOKEN: 2, UNK_TOKEN: 1}
     for n, title in enumerate(sorted(entity_titles), 2): # [NO_E]も入る
         entity_vocab[title] = n
 
@@ -91,14 +91,15 @@ def run(common_args, **task_args):
     model_weights = args.model_weights
     orig_entity_vocab = args.entity_vocab
     orig_entity_emb = model_weights['entity_embeddings.entity_embeddings.weight'] # 事前学習済みのエンティティ埋め込み (Ve ~= 1M)
+    vocab_size = orig_entity_emb.shape[0]
 
     if orig_entity_emb.size(0) != len(entity_vocab):
         orig_entity_bias = model_weights['entity_predictions.bias']
 
         assert '[UNK]' in orig_entity_vocab
 
-        entity_emb = orig_entity_emb.new_zeros((len(entity_titles) + 2, model_config.hidden_size)) # ここにslot filling していく
-        entity_bias = orig_entity_bias.new_zeros(len(entity_titles) + 2)
+        entity_emb = orig_entity_emb.new_zeros((len(entity_titles) + 3, model_config.entity_emb_size)) # ここにslot filling していく
+        entity_bias = orig_entity_bias.new_zeros(len(entity_titles) + 3)
 
         num_unk_entity = 0
         num_valid_entity = 0
@@ -108,7 +109,7 @@ def run(common_args, **task_args):
                 entity_emb[index] = orig_entity_emb[orig_entity_vocab[title]]
                 entity_bias[index] = orig_entity_bias[orig_entity_vocab[title]]
             elif title == '[NO_E]': # 1 で初期化
-                entity_emb[index] = orig_entity_emb.new_ones(model_config.hidden_size)
+                entity_emb[index] = orig_entity_emb.new_ones(model_config.entity_emb_size)
                 entity_bias[index] = orig_entity_bias.new_ones(1)
                 logger.info('Successfully Initialized for [NO_E]')
             else:

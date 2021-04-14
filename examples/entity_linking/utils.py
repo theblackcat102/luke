@@ -109,9 +109,9 @@ class EntityLinkingDataset(object):
         logger.info('-train')
         self.train = load_documents(os.path.join(dataset_dir, 'aida_train.txt'), person_names, self.mention_DB)
         logger.info('-test_a')
-        self.test_a = load_documents(os.path.join(dataset_dir, 'testa_testb_aggregate_original'), person_names, self.mention_DB)
+        self.test_a = load_documents(os.path.join(dataset_dir, 'testa.conll'), person_names, self.mention_DB)
         logger.info('-test_b')
-        self.test_b = load_documents(os.path.join(dataset_dir, 'testa_testb_aggregate_original'), person_names, self.mention_DB)
+        self.test_b = load_documents(os.path.join(dataset_dir, 'testb.conll'), person_names, self.mention_DB)
         logger.info('-ace2004')
         self.ace2004 = load_documents(os.path.join(dataset_dir, 'ace2004.conll'), person_names, self.mention_DB)
         logger.info('-aquaint')        
@@ -255,7 +255,7 @@ def load_documents(conll_path, person_names, mention_DB):
 
         for line in f:
             if line == '\n':
-                cur_doc['words'].append('[SEP]')
+                cur_doc['words'].append('</sep>')
                 continue
 
             line = line.strip()
@@ -412,16 +412,16 @@ def convert_documents_to_features(documents, tokenizer, entity_vocab, mode, max_
 
         for i, sub_tokens in enumerate(subword_list):
             index_map[i] = count
-            if len(sub_tokens) == 1 and sub_tokens[0] == '[SEP]':
+            if len(sub_tokens) == 1 and sub_tokens[0] == tokenizer._sep_token:
                 sent_indexs.append(count)
                 continue
             count += len(sub_tokens)
 
         sub_word_length = count
-        sub_word_without_sep = [w for ws in subword_list for w in ws if w != '[SEP]'] # tokenize された '[SEP]' 抜きの subword token 列
+        sub_word_without_sep = [w for ws in subword_list for w in ws if w != tokenizer._sep_token] # tokenize された '[SEP]' 抜きの subword token 列
         
         assert sub_word_length == len(sub_word_without_sep)
-        
+
         if sent_indexs[-1] != sub_word_length: # sub_word_listの最後が[SEP]でなかった場合
             sent_indexs.append(sub_word_length)
         
