@@ -72,6 +72,7 @@ def run(common_args, **task_args):
     logger.info('Loading Cached Datasets')
     with open(args.cached_dataset, 'rb') as f:
         dataset = pickle.load(f)
+    print(args.tokenizer)
 
     logger.info('Loading Cached Titles')
     with open(args.cached_titles, 'rb') as f:

@@ -195,7 +195,7 @@ def run_pretraining(args):
 
     entity_vocab = dataset_list[0].entity_vocab
     config = LukeConfig(
-        entity_vocab_size=274478,
+        entity_vocab_size=280000,
         bert_model_name=args.bert_model_name,
         entity_emb_size=args.entity_emb_size,
         **bert_config.to_dict(),

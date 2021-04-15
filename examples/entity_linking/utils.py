@@ -255,7 +255,7 @@ def load_documents(conll_path, person_names, mention_DB):
 
         for line in f:
             if line == '\n':
-                cur_doc['words'].append('</sep>')
+                cur_doc['words'].append('</s>')
                 continue
 
             line = line.strip()
@@ -419,6 +419,7 @@ def convert_documents_to_features(documents, tokenizer, entity_vocab, mode, max_
 
         sub_word_length = count
         sub_word_without_sep = [w for ws in subword_list for w in ws if w != tokenizer._sep_token] # tokenize された '[SEP]' 抜きの subword token 列
+        print(sub_word_without_sep, subword_list)
         
         assert sub_word_length == len(sub_word_without_sep)
 
