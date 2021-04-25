@@ -2,8 +2,10 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+*.json
+*.jsonl
 # C extensions
+apex/
 *.so
 *.csv
 *.pkl

@@ -104,7 +104,7 @@ class LukePretrainingModel(LukeModel):
                 ret["masked_entity_correct"] = word_ids.new_tensor(0, dtype=torch.long)
                 ret["masked_entity_total"] = word_ids.new_tensor(0, dtype=torch.long)
 
-        if masked_lm_labels is not None:
+        if False:
             masked_lm_mask = masked_lm_labels != -1
             if masked_lm_mask.sum() > 0:
                 masked_word_sequence_output = torch.masked_select(word_sequence_output, masked_lm_mask.unsqueeze(-1))
