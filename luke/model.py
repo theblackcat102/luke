@@ -91,12 +91,8 @@ class EntityEmbeddings(nn.Module):
 
     def calculate_loss(self, pos_pair, neg_pair):
         h, r, t = pos_pair
-        print(torch.max(h), torch.max(t))
-        print(torch.max(r))
 
         neg_h, neg_r, neg_t = neg_pair
-        print(torch.max(neg_h), torch.max(neg_t))
-        print(torch.max(neg_r))
 
         h_ent, t_ent = self.entity_embeddings(h), self.entity_embeddings(t)
         r_ent = self.relation_embeddings(r)
