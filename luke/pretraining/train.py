@@ -29,12 +29,21 @@ from luke.utils.model_utils import ENTITY_VOCAB_FILE
 
 logger = logging.getLogger(__name__)
 
-def freeze_partial_weights(model):
+def freeze_partial_weights(model, freeze_entity=False):
+
     for name, params in model.named_parameters():
         if 'embeddings' in name:
             params.requires_grad = False
+        elif 'encoder.layer' in name and not freeze_entity:
+            layer_num = int(name.split('encoder.layer.', 1)[1].split('.', 1)[0])
+            if layer_num < 5:
+                params.requires_grad = False
+            else:
+                params.requires_grad = True
+
     for params in model.lm_head.parameters():
         params.requires_grad = False
+
     for param in model.entity_embeddings.parameters():
         param.requires_grad = True
     for param in model.entity_predictions.parameters():
@@ -99,6 +108,7 @@ def pretrain(**kwargs):
 @click.option("--batch-size", default=None, type=int)
 @click.option("--gradient-accumulation-steps", default=None, type=int)
 @click.option("--grad-avg-on-cpu", is_flag=True, default=None)
+@click.option("--is-restart", is_flag=True, default=False)
 @click.option("--num-nodes", default=1)
 @click.option("--node-rank", default=0)
 @click.option("--master-addr", default="127.0.0.1")
@@ -128,13 +138,15 @@ def resume_pretraining(output_dir: str, **kwargs):
         step_metadata = json.load(f)
 
     args["model_file"] = os.path.join(output_dir, step_metadata["model_file"])
-    args["optimizer_file"] = os.path.join(output_dir, step_metadata["optimizer_file"])
-    args["scheduler_file"] = os.path.join(output_dir, step_metadata["scheduler_file"])
-    if "amp_file" in step_metadata:
-        args["amp_file"] = os.path.join(output_dir, step_metadata["amp_file"])
-    else:
-        args["amp_file"] = None
-    args["global_step"] = step_metadata["global_step"]
+    if not kwargs["is_restart"]:
+        args["optimizer_file"] = os.path.join(output_dir, step_metadata["optimizer_file"])
+        args["scheduler_file"] = os.path.join(output_dir, step_metadata["scheduler_file"])
+        if "amp_file" in step_metadata:
+            args["amp_file"] = os.path.join(output_dir, step_metadata["amp_file"])
+        else:
+            args["amp_file"] = None
+        args["global_step"] = step_metadata["global_step"]
+    
     args["local_rank"] = -1
 
     for key, value in kwargs.items():
@@ -219,14 +231,7 @@ def run_pretraining(args):
         skip=global_step * args.batch_size,
     )
 
-    if args.multilingual:
-        data_size_list = [len(d) for d in dataset_list]
-        batch_generator = MultilingualBatchGenerator(
-            dataset_dir_list, data_size_list, args.sampling_smoothing, **batch_generator_args,
-        )
-
-    else:
-        batch_generator = LukePretrainingBatchGenerator(args.dataset_dir, **batch_generator_args)
+    batch_generator = LukePretrainingBatchGenerator(args.dataset_dir, **batch_generator_args)
 
     logger.info("Model configuration: %s", config)
 
@@ -238,7 +243,7 @@ def run_pretraining(args):
         for param in model.entity_predictions.parameters():
             param.requires_grad = True
 
-    model = freeze_partial_weights(model)
+    model = freeze_partial_weights(model, freeze_entity=args.fix_bert_weights)
 
     model.to(device)
 

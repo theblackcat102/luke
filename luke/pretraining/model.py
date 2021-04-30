@@ -93,16 +93,25 @@ class LukePretrainingModel(LukeModel):
                 target_entity_labels = torch.masked_select(masked_entity_labels, entity_mask)
 
                 entity_scores = self.entity_predictions(target_entity_sequence_output)
+                ret["entity_scores"] = torch.argmax(entity_scores.clone(), -1)
+
                 entity_scores = entity_scores.view(-1, self.config.entity_vocab_size)
 
                 ret["masked_entity_loss"] = loss_fn(entity_scores, target_entity_labels)
                 ret["masked_entity_correct"] = (torch.argmax(entity_scores, 1).data == target_entity_labels.data).sum()
                 ret["masked_entity_total"] = target_entity_labels.ne(-1).sum()
                 ret["loss"] += ret["masked_entity_loss"]
-            else:
-                ret["masked_entity_loss"] = word_ids.new_tensor(0.0, dtype=model_dtype)
-                ret["masked_entity_correct"] = word_ids.new_tensor(0, dtype=torch.long)
-                ret["masked_entity_total"] = word_ids.new_tensor(0, dtype=torch.long)
+        else:
+            entity_mask = entity_ids != 0
+
+            target_entity_sequence_output = torch.masked_select(entity_sequence_output, entity_mask.unsqueeze(-1))
+            target_entity_sequence_output = target_entity_sequence_output.view(-1, self.config.hidden_size)
+            entity_scores = self.entity_predictions(target_entity_sequence_output)
+            ret["entity_scores"] = torch.argmax(entity_scores.clone(), -1)
+
+            ret["masked_entity_loss"] = word_ids.new_tensor(0.0, dtype=model_dtype)
+            ret["masked_entity_correct"] = word_ids.new_tensor(0, dtype=torch.long)
+            ret["masked_entity_total"] = word_ids.new_tensor(0, dtype=torch.long)
 
         if False:
             masked_lm_mask = masked_lm_labels != -1
