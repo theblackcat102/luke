@@ -67,6 +67,8 @@ class LukePretrainingModel(LukeModel):
         entity_attention_mask: torch.LongTensor,
         masked_entity_labels: Optional[torch.LongTensor] = None,
         masked_lm_labels: Optional[torch.LongTensor] = None,
+        pos_triplet = None,
+        neg_triplet = None,
         **kwargs
     ):
         model_dtype = next(self.parameters()).dtype  # for fp16 compatibility
@@ -112,6 +114,11 @@ class LukePretrainingModel(LukeModel):
             ret["masked_entity_loss"] = word_ids.new_tensor(0.0, dtype=model_dtype)
             ret["masked_entity_correct"] = word_ids.new_tensor(0, dtype=torch.long)
             ret["masked_entity_total"] = word_ids.new_tensor(0, dtype=torch.long)
+
+        if pos_triplet is not None:
+            transe_loss = self.entity_embeddings.calculate_loss(pos_triplet, neg_triplet)
+            ret["transe_loss"] = transe_loss
+            ret["loss"] += transe_loss
 
         if False:
             masked_lm_mask = masked_lm_labels != -1

@@ -19,13 +19,14 @@ from transformers import (
     get_constant_schedule_with_warmup,
     get_linear_schedule_with_warmup,
 )
-
+from luke.pretraining.kg_dataset import Dbpedia, infiniteloop
 from luke.model import LukeConfig
 from luke.optimization import LukeAdamW
 from luke.pretraining.batch_generator import LukePretrainingBatchGenerator, MultilingualBatchGenerator
 from luke.pretraining.dataset import WikipediaPretrainingDataset
 from luke.pretraining.model import LukePretrainingModel
 from luke.utils.model_utils import ENTITY_VOCAB_FILE
+from torch.utils.data import DataLoader
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +213,14 @@ def run_pretraining(args):
         entity_emb_size=args.entity_emb_size,
         **bert_config.to_dict(),
     )
+    dbpedia_dataset = Dbpedia('ntee/train.txt', 'train', datasetname='ntee_2014', 
+            merge_entity_id=False, merge_rel_id=True,
+            entity2id={})
+    config.rel_vocab_size = dbpedia_dataset.relation_size + 1
+    config.margin = 1
+    looper = infiniteloop( DataLoader(dbpedia_dataset, batch_size=512,
+            num_workers=10, shuffle=True), to_cuda=True)
+
     model = LukePretrainingModel(config)
 
     global_step = args.global_step
@@ -369,7 +378,12 @@ def run_pretraining(args):
 
     for batch in batch_generator.generate_batches():
         try:
+            kg_batch = next(looper)
+
             batch = {k: torch.from_numpy(v).to(device) for k, v in batch.items()}
+            batch['pos_triplet'] = kg_batch[0]
+            batch['neg_triplet'] = kg_batch[1]
+
             result = model(**batch)
             loss = result["loss"]
             result = {k: v.to("cpu").detach().numpy() for k, v in result.items()}

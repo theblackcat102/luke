@@ -34,11 +34,38 @@ class LukeConfig(BertConfig):
             self.entity_emb_size = entity_emb_size
 
 
+class MarginLoss(nn.Module):
+
+	def __init__(self, adv_temperature = None, margin = 6.0):
+		super(MarginLoss, self).__init__()
+		self.margin = nn.Parameter(torch.Tensor([margin]))
+		self.margin.requires_grad = False
+		if adv_temperature != None:
+			self.adv_temperature = nn.Parameter(torch.Tensor([adv_temperature]))
+			self.adv_temperature.requires_grad = False
+			self.adv_flag = True
+		else:
+			self.adv_flag = False
+	
+	def get_weights(self, n_score):
+		return torch.softmax(-n_score * self.adv_temperature, dim = -1).detach()
+
+	def forward(self, p_score, n_score):
+		if self.adv_flag:
+			return ((self.get_weights(n_score) * torch.max(p_score - n_score, -self.margin)).sum(dim = -1).mean() + self.margin).sum()
+		else:
+			return ((torch.max(p_score - n_score, -self.margin)).mean() + self.margin).sum()
+
+
 class EntityEmbeddings(nn.Module):
-    def __init__(self, config: LukeConfig):
+    def __init__(self, config: LukeConfig, p_norm=1):
         super(EntityEmbeddings, self).__init__()
         self.config = config
+        self.p_norm = 1
+        self.mse_criterion = nn.MSELoss()
+        self.criterion = MarginLoss(margin=config.margin)
 
+        self.relation_embeddings = nn.Embedding(config.rel_vocab_size, config.entity_emb_size)
         self.entity_embeddings = nn.Embedding(config.entity_vocab_size, config.entity_emb_size, padding_idx=0)
         if config.entity_emb_size != config.hidden_size:
             self.entity_embedding_dense = nn.Linear(config.entity_emb_size, config.hidden_size, bias=False)
@@ -48,6 +75,39 @@ class EntityEmbeddings(nn.Module):
 
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
+
+        self.init_weights()
+
+    def _calc(self, h, t, r):
+        return torch.norm(h + r - t, self.p_norm, -1)
+
+    def score(self, h, t, r):
+        return torch.norm(h + r - t, self.p_norm, -1)
+
+    def init_weights(self):
+        if isinstance(self.entity_embeddings, nn.Embedding):
+            nn.init.xavier_uniform_(self.entity_embeddings.weight.data)
+        nn.init.xavier_uniform_(self.relation_embeddings.weight.data)
+
+    def calculate_loss(self, pos_pair, neg_pair):
+        h, r, t = pos_pair
+        print(torch.max(h), torch.max(t))
+        print(torch.max(r))
+
+        neg_h, neg_r, neg_t = neg_pair
+        print(torch.max(neg_h), torch.max(neg_t))
+        print(torch.max(neg_r))
+
+        h_ent, t_ent = self.entity_embeddings(h), self.entity_embeddings(t)
+        r_ent = self.relation_embeddings(r)
+
+        p_score = self._calc(h_ent, t_ent, r_ent )
+        neg_h_ent, neg_t_ent = self.entity_embeddings(neg_h), self.entity_embeddings(neg_t)
+        neg_r_ent = self.relation_embeddings(neg_r)
+
+        n_score = self._calc(neg_h_ent, neg_t_ent, neg_r_ent)
+
+        return self.criterion(p_score, n_score)
 
     def forward(
         self, entity_ids: torch.LongTensor, position_ids: torch.LongTensor, token_type_ids: torch.LongTensor = None
