@@ -31,11 +31,10 @@ class EntityPredictionHead(nn.Module):
         self.config = config
         self.transform = EntityPredictionHeadTransform(config)
         self.decoder = nn.Linear(config.entity_emb_size, config.entity_vocab_size, bias=False)
-        self.bias = nn.Parameter(torch.zeros(config.entity_vocab_size))
 
     def forward(self, hidden_states: torch.Tensor):
         hidden_states = self.transform(hidden_states)
-        hidden_states = self.decoder(hidden_states) + self.bias
+        hidden_states = self.decoder(hidden_states)
 
         return hidden_states
 
