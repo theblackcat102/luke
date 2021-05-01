@@ -444,7 +444,7 @@ def run_pretraining(args):
             summary["batch_run_time"] = current_time - prev_step_time
             prev_step_time = current_time
 
-            for name in ("masked_lm", "masked_entity"):
+            for name in ("masked_lm", "masked_entity", "transe_loss"):
                 try:
                     summary[name + "_loss"] = np.concatenate([r[name + "_loss"].flatten() for r in results]).mean()
                     correct = np.concatenate([r[name + "_correct"].flatten() for r in results]).sum()

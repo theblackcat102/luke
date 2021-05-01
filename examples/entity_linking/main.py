@@ -48,7 +48,7 @@ def cli():
 @click.option('--max-seq-length', default=128) # 512
 @click.option('--max-candidate-length', default=20)
 @click.option('--max-entity-length', default=32)
-@click.option('--masked-entity-prob', default=0.15) # default 0.9
+@click.option('--masked-entity-prob', default=0.9) # default 0.9
 @click.option('--candidate-generation/--no-candidate-generation', default=True)
 @click.option('--use-context-entities/--no-context-entities', default=False)
 @click.option('--context-entity-selection-order', default='highest_prob',
@@ -72,7 +72,6 @@ def run(common_args, **task_args):
     logger.info('Loading Cached Datasets')
     with open(args.cached_dataset, 'rb') as f:
         dataset = pickle.load(f)
-    print(args.tokenizer)
 
     logger.info('Loading Cached Titles')
     with open(args.cached_titles, 'rb') as f:
@@ -80,52 +79,82 @@ def run(common_args, **task_args):
     
     logger.info('Building Entity Vocab')
     entity_vocab = {PAD_TOKEN: 0, MASK_TOKEN: 2, UNK_TOKEN: 1}
+    orig_entity_vocab = args.entity_vocab
+    not_found_titles = ['[NO_E]']
+    id2entity = {}
+    used_index = list(range(274478))
+    max_ent_id = -1
+
+    not_used_entity = {}
+
     for n, title in enumerate(sorted(entity_titles), 2): # [NO_E]も入る
-        entity_vocab[title] = n
+        if title in orig_entity_vocab and title not in entity_vocab:
+            if orig_entity_vocab[title] in used_index:
+                used_index.remove(orig_entity_vocab[title])
+                max_ent_id = max(max_ent_id, orig_entity_vocab[title])
+                entity_vocab[title] = orig_entity_vocab[title]
+                id2entity[orig_entity_vocab[title]] = title
+            else:
+                print(orig_entity_vocab[title], ' index repeated!', title)
+                not_found_titles.append(title)
+        else:
+            not_found_titles.append(title)
+
+
+    for idx in range(max_ent_id):
+        if idx not in id2entity:
+            ent_text = not_found_titles.pop()
+            entity_vocab[ent_text] = idx
+            id2entity[idx] = ent_text
+
+        if len(not_found_titles)== 0:
+            break
 
     assert '[NO_E]' in entity_titles
     
     model_config = args.model_config
-    model_config.entity_vocab_size = len(entity_vocab) # これを orig_emb[title] or orig_emb[UNK] or new_ones
+    model_config.entity_vocab_size = max_ent_id+1 # これを orig_emb[title] or orig_emb[UNK] or new_ones
     logger.info('Model configuration: %s', model_config)
 
     model_weights = args.model_weights
-    orig_entity_vocab = args.entity_vocab
+
+    import json
+    print(len(orig_entity_vocab), len(entity_vocab), max_ent_id)
+
+    with open('temp_new_entity.json', 'w') as f:
+        json.dump(entity_vocab, f)
+
     orig_entity_emb = model_weights['entity_embeddings.entity_embeddings.weight'] # 事前学習済みのエンティティ埋め込み (Ve ~= 1M)
     vocab_size = orig_entity_emb.shape[0]
+    print(vocab_size)
 
-    if orig_entity_emb.size(0) != len(entity_vocab):
-        orig_entity_bias = model_weights['entity_predictions.bias']
-
-        assert '[UNK]' in orig_entity_vocab
-
-        entity_emb = orig_entity_emb.new_zeros((len(entity_titles) + 3, model_config.entity_emb_size)) # ここにslot filling していく
-        entity_bias = orig_entity_bias.new_zeros(len(entity_titles) + 3)
-
-        num_unk_entity = 0
-        num_valid_entity = 0
-        for title, index in entity_vocab.items(): # entity_titles が valid title or UNK or NO_E に場合分けして slot filling 
-            if title in orig_entity_vocab:
-                num_valid_entity += 1
-                entity_emb[index] = orig_entity_emb[orig_entity_vocab[title]]
-                entity_bias[index] = orig_entity_bias[orig_entity_vocab[title]]
-            elif title == '[NO_E]': # 1 で初期化
-                entity_emb[index] = orig_entity_emb.new_ones(model_config.entity_emb_size)
-                entity_bias[index] = orig_entity_bias.new_ones(1)
-                logger.info('Successfully Initialized for [NO_E]')
-            else:
-                num_unk_entity += 1
-                entity_emb[index] = orig_entity_emb[orig_entity_vocab['[UNK]']]
-                entity_bias[index] = orig_entity_bias[orig_entity_vocab['[UNK]']]
-
-        logger.info('# of valid entities: %d', num_valid_entity)
-        logger.info('# of unknown entities: %d', num_unk_entity)
-
-        model_weights['entity_embeddings.entity_embeddings.weight'] = entity_emb
-        model_weights['entity_embeddings.mask_embedding'] = entity_emb[1].view(1, -1)
-        model_weights['entity_predictions.decoder.weight'] = entity_emb
-        model_weights['entity_predictions.bias'] = entity_bias
-        del orig_entity_bias, entity_emb, entity_bias
+    # if orig_entity_emb.size(0) != len(entity_vocab):
+    #     orig_entity_bias = model_weights['entity_predictions.bias']
+    #     assert '[UNK]' in orig_entity_vocab
+    #     entity_emb = orig_entity_emb.new_zeros((max_ent_id+1, model_config.entity_emb_size)) # ここにslot filling していく
+    #     entity_bias = orig_entity_bias.new_zeros(max_ent_id+1)
+    #     num_unk_entity = 0
+    #     num_valid_entity = 0
+    #     for title, index in entity_vocab.items(): # entity_titles が valid title or UNK or NO_E に場合分けして slot filling 
+    #         if title in orig_entity_vocab:
+    #             num_valid_entity += 1
+    #             entity_emb[index] = orig_entity_emb[orig_entity_vocab[title]]
+    #             entity_bias[index] = orig_entity_bias[orig_entity_vocab[title]]
+    #         elif title == '[NO_E]': # 1 で初期化
+    #             entity_emb[index] = orig_entity_emb.new_zeros(model_config.entity_emb_size)
+    #             entity_bias[index] = orig_entity_bias.new_zeros(1)
+    #             logger.info('Successfully Initialized for [NO_E]')
+    #         else:
+    #             num_unk_entity += 1
+    #             entity_emb[index] = orig_entity_emb[orig_entity_vocab['[UNK]']]
+    #             entity_bias[index] = orig_entity_bias[orig_entity_vocab['[UNK]']]
+    #     logger.info('# of valid entities: %d', num_valid_entity)
+    #     logger.info('# of unknown entities: %d', num_unk_entity)
+    #     model_weights['entity_embeddings.entity_embeddings.weight'] = entity_emb
+    #     model_weights['entity_embeddings.mask_embedding'] = entity_emb[1].view(1, -1)
+    #     model_weights['entity_predictions.decoder.weight'] = entity_emb
+    #     model_weights['entity_predictions.bias'] = entity_bias
+    #     del orig_entity_bias, entity_emb, entity_bias
     del orig_entity_emb
 
     logger.info('Building Model')
@@ -162,7 +191,7 @@ def run(common_args, **task_args):
         logger.info('*****Training*****')
         logger.info('Converting Documents to Features')
         train_data = convert_documents_to_features(
-            dataset.test_b, args.tokenizer, entity_vocab, 'train', args.max_seq_length,
+            dataset.train, args.tokenizer, entity_vocab, 'train', args.max_seq_length,
             args.max_candidate_length, args.max_mention_length, args.max_entity_length)
         train_dataloader = DataLoader(train_data, batch_size=args.train_batch_size, collate_fn=collate_fn, shuffle=True)
         logger.info('Fix entity embeddings during training: %s', args.fix_entity_emb)
@@ -212,12 +241,7 @@ def cache_datasets_and_titles(data_dir, mentiondb_file, titles_file, redirects_f
     logger.info('Building Datasets')
     dataset = EntityLinkingDataset(data_dir, mentiondb_file, titles_file, redirects_file)
     logger.info('Pickling Datasets')
-    cache_file = os.path.join(
-        data_dir,
-        "cached_datasets.pkl",
-    )
-    with open(cache_file, 'wb') as f:
-        pickle.dump(dataset, f)
+
     logger.info('--Pickled')
     logger.info(cache_file)
     logger.info('Building Entity Titles')
