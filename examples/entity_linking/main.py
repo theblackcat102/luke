@@ -198,8 +198,6 @@ def run(common_args, **task_args):
         if args.fix_entity_emb:
             model.entity_embeddings.entity_embeddings.weight.requires_grad = False
         logger.info('Fix entity bias during training: %s', args.fix_entity_bias)
-        if args.fix_entity_bias:
-            model.entity_predictions.bias.requires_grad = False
         num_train_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
         trainer = EntityLinkingTrainer(args, model, train_dataloader, num_train_steps)
         trainer.train()
