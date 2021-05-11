@@ -333,6 +333,9 @@ def run_pretraining(args):
 
     model.train()
 
+    logger.info("Trainable weights {:.3f}M".format(sum(p.numel() for p in model.parameters() if p.requires_grad)/ 1e6))
+    logger.info("Total weights {:.3f}M".format( sum(p.numel() for p in model.parameters() ) / 1e6))
+
     if args.local_rank == -1 or worker_index == 0:
         entity_vocab.save(os.path.join(args.output_dir, ENTITY_VOCAB_FILE))
         metadata = dict(
