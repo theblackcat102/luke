@@ -415,7 +415,7 @@ def convert_documents_to_features(documents, tokenizer, entity_vocab, mode, max_
 
         mention_data = []
 
-        subword_list = [tokenizer.tokenize(w) for w in document.words] # list of list
+        subword_list = [tokenizer.tokenize(' '+w if idx > 0 and w!=str(tokenizer._sep_token)  else w) for idx, w in enumerate(document.words)] # list of list
         
         assert len(subword_list) == len(document.words)
 

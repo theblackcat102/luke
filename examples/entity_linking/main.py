@@ -80,6 +80,7 @@ def run(common_args, **task_args):
         entity_titles = pickle.load(f)
     
     logger.info('Building Entity Vocab')
+
     if os.path.exists('temp_new_entity.json'):
         with open('temp_new_entity.json', 'r') as f:
             entity_vocab = json.load(f)
@@ -89,7 +90,6 @@ def run(common_args, **task_args):
         not_found_titles = ['[NO_E]']
         id2entity = {}
         used_index = list(range(274478))
-        max_ent_id = -1
 
         not_used_entity = {}
 
@@ -118,21 +118,18 @@ def run(common_args, **task_args):
 
         assert '[NO_E]' in entity_titles
         
-        model_config = args.model_config
-        model_config.entity_vocab_size = max_ent_id+1 # これを orig_emb[title] or orig_emb[UNK] or new_ones
-        logger.info('Model configuration: %s', model_config)
-
-        model_weights = args.model_weights
-
         print(len(orig_entity_vocab), len(entity_vocab), max_ent_id)
-
         with open('temp_new_entity.json', 'w') as f:
             json.dump(entity_vocab, f)
 
+    max_ent_id = max([ idx for _, idx in entity_vocab.items() ])
+    model_config = args.model_config
+    model_config.entity_vocab_size = max_ent_id+1 # これを orig_emb[title] or orig_emb[UNK] or new_ones
+    logger.info('Model configuration: %s', model_config)
+    model_weights = args.model_weights
     orig_entity_emb = model_weights['entity_embeddings.entity_embeddings.weight'] # 事前学習済みのエンティティ埋め込み (Ve ~= 1M)
     vocab_size = orig_entity_emb.shape[0]
     print(vocab_size)
-
     # if orig_entity_emb.size(0) != len(entity_vocab):
     #     orig_entity_bias = model_weights['entity_predictions.bias']
     #     assert '[UNK]' in orig_entity_vocab
@@ -165,6 +162,8 @@ def run(common_args, **task_args):
     logger.info('Building Model')
     model = LukeForEntityDisambiguation(model_config)
     model.load_state_dict(model_weights, strict=False)
+
+
     logger.info('Being on device')
     model.to(args.device)
 
@@ -193,26 +192,30 @@ def run(common_args, **task_args):
 
     # train -> test_b
     if args.do_train:
-        model.eval()
-
-        results = {}
-        for dataset_name in args.test_set:
-            logger.info('***** Evaluating: %s *****', dataset_name)
-            eval_documents = getattr(dataset, dataset_name)
-            eval_data = convert_documents_to_features(
-                eval_documents, args.tokenizer, entity_vocab, 'eval', args.max_seq_length,
-                args.max_candidate_length, args.max_mention_length, args.max_entity_length)
-            eval_dataloader = DataLoader(eval_data, batch_size=1,
-                                         collate_fn=functools.partial(collate_fn, is_eval=True))
-            predictions_file = None
-            if args.output_dir:
-                predictions_file = os.path.join(args.output_dir, 'eval_predictions_%s.jsonl' % dataset_name)
-            results[dataset_name] = evaluate(args, eval_dataloader, model, entity_vocab, predictions_file)
 
         if args.output_dir:
             output_eval_file = os.path.join(args.output_dir, 'init_eval_results.txt')
-            with open(output_eval_file, 'w') as f:
-                json.dump(results, f, indent=2, sort_keys=True)
+            if not os.path.exists(output_eval_file):
+                model.eval()
+                results = {}
+                for dataset_name in args.test_set:
+                    logger.info('***** Evaluating: %s *****', dataset_name)
+                    eval_documents = getattr(dataset, dataset_name)
+                    eval_data = convert_documents_to_features(
+                        eval_documents, args.tokenizer, entity_vocab, 'eval', args.max_seq_length,
+                        args.max_candidate_length, args.max_mention_length, args.max_entity_length)
+                    eval_dataloader = DataLoader(eval_data, batch_size=1,
+                                                collate_fn=functools.partial(collate_fn, is_eval=True))
+                    predictions_file = None
+                    if args.output_dir:
+                        predictions_file = os.path.join(args.output_dir, 'eval_predictions_%s.jsonl' % dataset_name)
+                    results[dataset_name] = evaluate(args, eval_dataloader, model, entity_vocab, predictions_file)
+
+                if args.output_dir:
+                    output_eval_file = os.path.join(args.output_dir, 'init_eval_results.txt')
+                    with open(output_eval_file, 'w') as f:
+                        json.dump(results, f, indent=2, sort_keys=True)
+                model.train()
 
         summary_writer = SummaryWriter(args.log_dir)
 
@@ -227,6 +230,10 @@ def run(common_args, **task_args):
             model.entity_embeddings.entity_embeddings.weight.requires_grad = False
         logger.info('Fix entity bias during training: %s', args.fix_entity_bias)
         num_train_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
+
+        logger.info("Trainable weights {:.3f}M".format(sum(p.numel() for p in model.parameters() if p.requires_grad)/ 1e6))
+        logger.info("Total weights {:.3f}M".format( sum(p.numel() for p in model.parameters() ) / 1e6))
+
         trainer = EntityLinkingTrainer(args, model, train_dataloader, num_train_steps, writer=summary_writer)
         trainer.train()
             
