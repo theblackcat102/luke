@@ -172,6 +172,13 @@ class Document(object):
         self.words = words
         self.mentions = mentions
 
+    def to_json(self):
+        return {
+            'id': self.id,
+            'words': self.words,
+            'mentions': [ ment.to_json() for ment in self.mentions]
+        }
+
     def __repr__(self):
         return '<Document %s...>' % (' '.join(self.words[:3]),)
 
@@ -188,6 +195,10 @@ class Mention(object):
     def span(self):
         return self.start, self.end
 
+    def to_json(self):
+        return {  'text': self.text, 'start': self.start, 'end': self.end, 'title': self.title, 
+            'candidates': [ can.to_json() for can in self.candidates  ]}
+
     def __repr__(self):
         return '<Mention %s->%s>' % (self.text, self.title)
 
@@ -200,6 +211,8 @@ class Candidate(object):
     def __repr__(self):
         return '<Candidate %s (prior prob: %.3f)>' % (self.title, self.prior_prob)
 
+    def to_json(self):
+        return {'title': self.title, 'prior_prob': self.prior_prob }
 
 class InputFeatures(object):
     def __init__(self, document, mentions, word_ids, word_segment_ids, word_attention_mask, entity_ids,
@@ -255,7 +268,7 @@ def load_documents(conll_path, person_names, mention_DB):
 
         for line in f:
             if line == '\n':
-                cur_doc['words'].append('</s>')
+                cur_doc['words'].append('</sep>')
                 continue
 
             line = line.strip()
@@ -402,7 +415,7 @@ def convert_documents_to_features(documents, tokenizer, entity_vocab, mode, max_
 
         mention_data = []
 
-        subword_list = [tokenizer.tokenize(w) for w in document.words] # list of list
+        subword_list = [tokenizer.tokenize(' '+w if idx > 0 and w!=str(tokenizer._sep_token)  else w) for idx, w in enumerate(document.words)] # list of list
         
         assert len(subword_list) == len(document.words)
 
