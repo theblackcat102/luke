@@ -5,6 +5,7 @@ import os
 
 import click
 import torch
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from transformers import WEIGHTS_NAME, AdamW, get_constant_schedule_with_warmup, get_linear_schedule_with_warmup
 
@@ -35,10 +36,11 @@ def trainer_args(func):
 
 
 class Trainer(object):
-    def __init__(self, args, model, dataloader, num_train_steps, step_callback=None):
+    def __init__(self, args, model, dataloader, num_train_steps, step_callback=None, writer=None):
         self.args = args
         self.model = model
         self.dataloader = dataloader
+        self.writer = writer
         self.num_train_steps = num_train_steps
         self.step_callback = step_callback
 
@@ -113,6 +115,9 @@ class Trainer(object):
                         self.optimizer.step()
                         self.scheduler.step()
                         model.zero_grad()
+
+                        if self.writer is not None:
+                            self.writer.add_scalar("loss", loss.item(), global_step)
 
                         pbar.set_description("epoch: %d loss: %.7f" % (epoch, loss.item()))
                         pbar.update()

@@ -13,8 +13,9 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import WEIGHTS_NAME
+import json
 from wikipedia2vec.dump_db import DumpDB
-
+from torch.utils.tensorboard import SummaryWriter
 from luke.utils.entity_vocab import MASK_TOKEN, PAD_TOKEN, UNK_TOKEN
 
 from ..utils.trainer import Trainer, trainer_args
@@ -42,6 +43,7 @@ def cli():
 @click.option('-t', '--test-set', default=['test_a', 'test_b', 'ace2004', 'aquaint', 'msnbc', 'wikipedia'],
               multiple=True)
 @click.option('--do-train/--no-train', default=True)
+@click.option('--log-dir',  default='luke')
 @click.option('--do-eval/--no-eval', default=True)
 @click.option('--num-train-epochs', default=10)
 @click.option('--train-batch-size', default=1) # * acm_step =  4 8 16 32 64 
@@ -78,51 +80,54 @@ def run(common_args, **task_args):
         entity_titles = pickle.load(f)
     
     logger.info('Building Entity Vocab')
-    entity_vocab = {PAD_TOKEN: 0, MASK_TOKEN: 2, UNK_TOKEN: 1}
-    orig_entity_vocab = args.entity_vocab
-    not_found_titles = ['[NO_E]']
-    id2entity = {}
-    used_index = list(range(274478))
-    max_ent_id = -1
+    if os.path.exists('temp_new_entity.json'):
+        with open('temp_new_entity.json', 'r') as f:
+            entity_vocab = json.load(f)
+    else:
+        entity_vocab = {PAD_TOKEN: 0, MASK_TOKEN: 2, UNK_TOKEN: 1}
+        orig_entity_vocab = args.entity_vocab
+        not_found_titles = ['[NO_E]']
+        id2entity = {}
+        used_index = list(range(274478))
+        max_ent_id = -1
 
-    not_used_entity = {}
+        not_used_entity = {}
 
-    for n, title in enumerate(sorted(entity_titles), 2): # [NO_E]も入る
-        if title in orig_entity_vocab and title not in entity_vocab:
-            if orig_entity_vocab[title] in used_index:
-                used_index.remove(orig_entity_vocab[title])
-                max_ent_id = max(max_ent_id, orig_entity_vocab[title])
-                entity_vocab[title] = orig_entity_vocab[title]
-                id2entity[orig_entity_vocab[title]] = title
+        for n, title in enumerate(sorted(entity_titles), 2): # [NO_E]も入る
+            if title in orig_entity_vocab and title not in entity_vocab:
+                if orig_entity_vocab[title] in used_index:
+                    used_index.remove(orig_entity_vocab[title])
+                    max_ent_id = max(max_ent_id, orig_entity_vocab[title])
+                    entity_vocab[title] = orig_entity_vocab[title]
+                    id2entity[orig_entity_vocab[title]] = title
+                else:
+                    print(orig_entity_vocab[title], ' index repeated!', title)
+                    not_found_titles.append(title)
             else:
-                print(orig_entity_vocab[title], ' index repeated!', title)
                 not_found_titles.append(title)
-        else:
-            not_found_titles.append(title)
 
 
-    for idx in range(max_ent_id):
-        if idx not in id2entity:
-            ent_text = not_found_titles.pop()
-            entity_vocab[ent_text] = idx
-            id2entity[idx] = ent_text
+        for idx in range(max_ent_id):
+            if idx not in id2entity:
+                ent_text = not_found_titles.pop()
+                entity_vocab[ent_text] = idx
+                id2entity[idx] = ent_text
 
-        if len(not_found_titles)== 0:
-            break
+            if len(not_found_titles)== 0:
+                break
 
-    assert '[NO_E]' in entity_titles
-    
-    model_config = args.model_config
-    model_config.entity_vocab_size = max_ent_id+1 # これを orig_emb[title] or orig_emb[UNK] or new_ones
-    logger.info('Model configuration: %s', model_config)
+        assert '[NO_E]' in entity_titles
+        
+        model_config = args.model_config
+        model_config.entity_vocab_size = max_ent_id+1 # これを orig_emb[title] or orig_emb[UNK] or new_ones
+        logger.info('Model configuration: %s', model_config)
 
-    model_weights = args.model_weights
+        model_weights = args.model_weights
 
-    import json
-    print(len(orig_entity_vocab), len(entity_vocab), max_ent_id)
+        print(len(orig_entity_vocab), len(entity_vocab), max_ent_id)
 
-    with open('temp_new_entity.json', 'w') as f:
-        json.dump(entity_vocab, f)
+        with open('temp_new_entity.json', 'w') as f:
+            json.dump(entity_vocab, f)
 
     orig_entity_emb = model_weights['entity_embeddings.entity_embeddings.weight'] # 事前学習済みのエンティティ埋め込み (Ve ~= 1M)
     vocab_size = orig_entity_emb.shape[0]
@@ -188,6 +193,29 @@ def run(common_args, **task_args):
 
     # train -> test_b
     if args.do_train:
+        model.eval()
+
+        results = {}
+        for dataset_name in args.test_set:
+            logger.info('***** Evaluating: %s *****', dataset_name)
+            eval_documents = getattr(dataset, dataset_name)
+            eval_data = convert_documents_to_features(
+                eval_documents, args.tokenizer, entity_vocab, 'eval', args.max_seq_length,
+                args.max_candidate_length, args.max_mention_length, args.max_entity_length)
+            eval_dataloader = DataLoader(eval_data, batch_size=1,
+                                         collate_fn=functools.partial(collate_fn, is_eval=True))
+            predictions_file = None
+            if args.output_dir:
+                predictions_file = os.path.join(args.output_dir, 'eval_predictions_%s.jsonl' % dataset_name)
+            results[dataset_name] = evaluate(args, eval_dataloader, model, entity_vocab, predictions_file)
+
+        if args.output_dir:
+            output_eval_file = os.path.join(args.output_dir, 'init_eval_results.txt')
+            with open(output_eval_file, 'w') as f:
+                json.dump(results, f, indent=2, sort_keys=True)
+
+        summary_writer = SummaryWriter(args.log_dir)
+
         logger.info('*****Training*****')
         logger.info('Converting Documents to Features')
         train_data = convert_documents_to_features(
@@ -199,7 +227,7 @@ def run(common_args, **task_args):
             model.entity_embeddings.entity_embeddings.weight.requires_grad = False
         logger.info('Fix entity bias during training: %s', args.fix_entity_bias)
         num_train_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
-        trainer = EntityLinkingTrainer(args, model, train_dataloader, num_train_steps)
+        trainer = EntityLinkingTrainer(args, model, train_dataloader, num_train_steps, writer=summary_writer)
         trainer.train()
             
     results = {}
