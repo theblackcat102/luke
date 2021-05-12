@@ -24,7 +24,7 @@ from .model import LukeForEntityDisambiguation
 # import added
 from examples.utils.mention_db import MentionDB, BertLowercaseNormalizer
 from transformers.tokenization_bert import BasicTokenizer
-from .utils import EntityLinkingDataset, convert_documents_to_features
+from .utils import EntityDisambiguationDataset, convert_documents_to_features
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +272,7 @@ def run(common_args, **task_args):
 @click.option('--redirects-file', type=click.Path(exists=True), default='/mnt/usbdisk1/entity_linking/data-3/enwiki_20181220_redirects.tsv')
 def cache_datasets_and_titles(data_dir, mentiondb_file, titles_file, redirects_file):
     logger.info('Building Datasets')
-    dataset = EntityLinkingDataset(data_dir, mentiondb_file, titles_file, redirects_file)
+    dataset = EntityDisambiguationDataset(data_dir, mentiondb_file, titles_file, redirects_file)
     logger.info('Pickling Datasets')
 
     logger.info('--Pickled')
@@ -311,7 +311,7 @@ def create_candidate_list(dump_db_file, mention_db_file, out_file, data_dir):
     titles = set()
     valid_titles = frozenset(dump_db.titles())
 
-    reader = EntityLinkingDataset(data_dir, mention_db_file)
+    reader = EntityDisambiguationDataset(data_dir, mention_db_file)
     for documents in tqdm(reader.get_all_datasets()):
         for document in tqdm(documents):
             for mention in document.mentions:

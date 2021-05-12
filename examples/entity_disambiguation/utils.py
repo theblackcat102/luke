@@ -101,7 +101,7 @@ class LukeForEntityDisambiguation(LukeModel):
 
         return (logits,)
 
-class EntityLinkingDataset(object):
+class EntityDisambiguationDataset(object):
     def __init__(self, dataset_dir, mention_db_path, wikipedia_titles_file=None, wikipedia_redirects_file=None):
         person_names = frozenset(load_person_names(os.path.join(dataset_dir, 'persons.txt')))
         logger.info('-MentionDB')
@@ -114,7 +114,7 @@ class EntityLinkingDataset(object):
         self.test_b = load_documents(os.path.join(dataset_dir, 'testb.conll'), person_names, self.mention_DB)
         logger.info('-ace2004')
         self.ace2004 = load_documents(os.path.join(dataset_dir, 'ace2004.conll'), person_names, self.mention_DB)
-        logger.info('-aquaint')        
+        logger.info('-aquaint')
         self.aquaint = load_documents(os.path.join(dataset_dir, 'aquaint.conll'), person_names, self.mention_DB)
         logger.info('-clueweb')
         self.clueweb = load_documents(os.path.join(dataset_dir, 'clueweb.conll'), person_names, self.mention_DB)
