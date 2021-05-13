@@ -40,7 +40,7 @@ def cli():
 @click.option('--mentiondb-file', type=click.Path(exists=True), default='/mnt/usbdisk1/entity_linking/data-3/mention_db_from_p_e_m_v2')
 @click.option('--titles-file', type=click.Path(exists=True), default='/mnt/usbdisk1/entity_linking/data-3/enwiki_20181220_titles.txt')
 @click.option('--redirects-file', type=click.Path(exists=True), default='/mnt/usbdisk1/entity_linking/data-3/enwiki_20181220_redirects.tsv')
-@click.option('-t', '--test-set', default=['test_a', 'test_b', 'ace2004', 'aquaint', 'msnbc', 'wikipedia'],
+@click.option('-t', '--test-set', default=['clueweb','test_a', 'test_b', 'ace2004', 'aquaint', 'msnbc', 'wikipedia'],
               multiple=True)
 @click.option('--do-train/--no-train', default=True)
 @click.option('--log-dir',  default='luke')
@@ -202,8 +202,11 @@ def run(common_args, **task_args):
                     logger.info('***** Evaluating: %s *****', dataset_name)
                     eval_documents = getattr(dataset, dataset_name)
                     eval_data = convert_documents_to_features(
-                        eval_documents, args.tokenizer, entity_vocab, 'eval', args.max_seq_length,
-                        args.max_candidate_length, args.max_mention_length, args.max_entity_length)
+                        eval_documents, args.tokenizer, entity_vocab, 'eval', 
+                        150 if 'clueweb'==dataset_name else args.max_seq_length,
+                        max_candidate_length=20 if 'clueweb'==dataset_name else  args.max_candidate_length,
+                        max_mention_length=20  if 'clueweb'==dataset_name else args.max_mention_length,
+                        max_entity_length=20 if 'clueweb'==dataset_name else args.max_entity_length)
                     eval_dataloader = DataLoader(eval_data, batch_size=1,
                                                 collate_fn=functools.partial(collate_fn, is_eval=True))
                     predictions_file = None
@@ -247,8 +250,11 @@ def run(common_args, **task_args):
             logger.info('***** Evaluating: %s *****', dataset_name)
             eval_documents = getattr(dataset, dataset_name)
             eval_data = convert_documents_to_features(
-                eval_documents, args.tokenizer, entity_vocab, 'eval', args.max_seq_length,
-                args.max_candidate_length, args.max_mention_length, args.max_entity_length)
+                eval_documents, args.tokenizer, entity_vocab, 'eval', 
+                150 if 'clueweb'==dataset_name else args.max_seq_length,
+                max_candidate_length=20 if 'clueweb'==dataset_name else  args.max_candidate_length,
+                max_mention_length=20  if 'clueweb'==dataset_name else args.max_mention_length,
+                max_entity_length=20 if 'clueweb'==dataset_name else args.max_entity_length)
             eval_dataloader = DataLoader(eval_data, batch_size=1,
                                          collate_fn=functools.partial(collate_fn, is_eval=True))
             predictions_file = None
