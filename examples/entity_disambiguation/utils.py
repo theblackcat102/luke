@@ -101,7 +101,7 @@ class LukeForEntityDisambiguation(LukeModel):
 
         return (logits,)
 
-class EntityLinkingDataset(object):
+class EntityDisambiguationDataset(object):
     def __init__(self, dataset_dir, mention_db_path, wikipedia_titles_file=None, wikipedia_redirects_file=None):
         person_names = frozenset(load_person_names(os.path.join(dataset_dir, 'persons.txt')))
         logger.info('-MentionDB')

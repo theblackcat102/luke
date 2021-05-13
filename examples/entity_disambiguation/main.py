@@ -24,7 +24,7 @@ from .model import LukeForEntityDisambiguation
 # import added
 from examples.utils.mention_db import MentionDB, BertLowercaseNormalizer
 from transformers.tokenization_bert import BasicTokenizer
-from .utils import EntityLinkingDataset, convert_documents_to_features
+from .utils import EntityDisambiguationDataset, convert_documents_to_features
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def cli():
 @click.option('--mentiondb-file', type=click.Path(exists=True), default='/mnt/usbdisk1/entity_linking/data-3/mention_db_from_p_e_m_v2')
 @click.option('--titles-file', type=click.Path(exists=True), default='/mnt/usbdisk1/entity_linking/data-3/enwiki_20181220_titles.txt')
 @click.option('--redirects-file', type=click.Path(exists=True), default='/mnt/usbdisk1/entity_linking/data-3/enwiki_20181220_redirects.tsv')
-@click.option('-t', '--test-set', default=['test_a', 'test_b', 'ace2004', 'aquaint', 'msnbc', 'wikipedia'],
+@click.option('-t', '--test-set', default=['clueweb','test_a', 'test_b', 'ace2004', 'aquaint', 'msnbc', 'wikipedia'],
               multiple=True)
 @click.option('--do-train/--no-train', default=True)
 @click.option('--log-dir',  default='luke')
@@ -122,6 +122,8 @@ def run(common_args, **task_args):
         with open('temp_new_entity.json', 'w') as f:
             json.dump(entity_vocab, f)
 
+
+
     max_ent_id = max([ idx for _, idx in entity_vocab.items() ])
     model_config = args.model_config
     model_config.entity_vocab_size = max_ent_id+1 # これを orig_emb[title] or orig_emb[UNK] or new_ones
@@ -130,34 +132,22 @@ def run(common_args, **task_args):
     orig_entity_emb = model_weights['entity_embeddings.entity_embeddings.weight'] # 事前学習済みのエンティティ埋め込み (Ve ~= 1M)
     vocab_size = orig_entity_emb.shape[0]
     print(vocab_size)
-    # if orig_entity_emb.size(0) != len(entity_vocab):
-    #     orig_entity_bias = model_weights['entity_predictions.bias']
-    #     assert '[UNK]' in orig_entity_vocab
-    #     entity_emb = orig_entity_emb.new_zeros((max_ent_id+1, model_config.entity_emb_size)) # ここにslot filling していく
-    #     entity_bias = orig_entity_bias.new_zeros(max_ent_id+1)
-    #     num_unk_entity = 0
-    #     num_valid_entity = 0
-    #     for title, index in entity_vocab.items(): # entity_titles が valid title or UNK or NO_E に場合分けして slot filling 
-    #         if title in orig_entity_vocab:
-    #             num_valid_entity += 1
-    #             entity_emb[index] = orig_entity_emb[orig_entity_vocab[title]]
-    #             entity_bias[index] = orig_entity_bias[orig_entity_vocab[title]]
-    #         elif title == '[NO_E]': # 1 で初期化
-    #             entity_emb[index] = orig_entity_emb.new_zeros(model_config.entity_emb_size)
-    #             entity_bias[index] = orig_entity_bias.new_zeros(1)
-    #             logger.info('Successfully Initialized for [NO_E]')
-    #         else:
-    #             num_unk_entity += 1
-    #             entity_emb[index] = orig_entity_emb[orig_entity_vocab['[UNK]']]
-    #             entity_bias[index] = orig_entity_bias[orig_entity_vocab['[UNK]']]
-    #     logger.info('# of valid entities: %d', num_valid_entity)
-    #     logger.info('# of unknown entities: %d', num_unk_entity)
-    #     model_weights['entity_embeddings.entity_embeddings.weight'] = entity_emb
-    #     model_weights['entity_embeddings.mask_embedding'] = entity_emb[1].view(1, -1)
-    #     model_weights['entity_predictions.decoder.weight'] = entity_emb
-    #     model_weights['entity_predictions.bias'] = entity_bias
-    #     del orig_entity_bias, entity_emb, entity_bias
+    orig_entity_vocab = args.entity_vocab
+    orig_entity_emb = model_weights['entity_embeddings.entity_embeddings.weight']
+
+    if orig_entity_emb.size(0) != len(entity_vocab):  # detect whether the model is the fine-tuned one
+        logger.info("Entity embedding remapped!")
+        entity_emb = orig_entity_emb.new_zeros((max_ent_id+1, 300))
+        for title, index in entity_vocab.items():
+            if title in orig_entity_vocab and title != '[NO_E]':
+                orig_index = orig_entity_vocab[title]
+                entity_emb[index] = orig_entity_emb[orig_index]
+        model_weights['entity_embeddings.entity_embeddings.weight'] = entity_emb
+        model_weights['entity_embeddings.mask_embedding'] = entity_emb[1].view(1, -1)
+        model_weights['entity_predictions.decoder.weight'] = entity_emb
+        del entity_emb
     del orig_entity_emb
+
 
     logger.info('Building Model')
     model = LukeForEntityDisambiguation(model_config)
@@ -272,7 +262,7 @@ def run(common_args, **task_args):
 @click.option('--redirects-file', type=click.Path(exists=True), default='/mnt/usbdisk1/entity_linking/data-3/enwiki_20181220_redirects.tsv')
 def cache_datasets_and_titles(data_dir, mentiondb_file, titles_file, redirects_file):
     logger.info('Building Datasets')
-    dataset = EntityLinkingDataset(data_dir, mentiondb_file, titles_file, redirects_file)
+    dataset = EntityDisambiguationDataset(data_dir, mentiondb_file, titles_file, redirects_file)
     logger.info('Pickling Datasets')
 
     logger.info('--Pickled')
@@ -311,7 +301,7 @@ def create_candidate_list(dump_db_file, mention_db_file, out_file, data_dir):
     titles = set()
     valid_titles = frozenset(dump_db.titles())
 
-    reader = EntityLinkingDataset(data_dir, mention_db_file)
+    reader = EntityDisambiguationDataset(data_dir, mention_db_file)
     for documents in tqdm(reader.get_all_datasets()):
         for document in tqdm(documents):
             for mention in document.mentions:
@@ -363,7 +353,7 @@ def evaluate(args, eval_dataloader, model, entity_vocab, output_file=None):
     documents = []
     mentions = []
     reverse_entity_vocab = {v: k for k, v in entity_vocab.items()}
-    for item in tqdm(eval_dataloader, leave=False):  # the batch size must be 1
+    for item in tqdm(eval_dataloader, leave=True):  # the batch size must be 1
         inputs = {k: v.to(args.device)
                   for k, v in item.items() if k not in ('document', 'mentions', 'target_mention_indices')}
         entity_ids = inputs.pop('entity_ids')
