@@ -192,8 +192,11 @@ def run(common_args, **task_args):
                     logger.info('***** Evaluating: %s *****', dataset_name)
                     eval_documents = getattr(dataset, dataset_name)
                     eval_data = convert_documents_to_features(
-                        eval_documents, args.tokenizer, entity_vocab, 'eval', args.max_seq_length,
-                        args.max_candidate_length, args.max_mention_length, args.max_entity_length)
+                        eval_documents, args.tokenizer, entity_vocab, 'eval', 
+                        150 if 'clueweb'==dataset_name else args.max_seq_length,
+                        max_candidate_length=20 if 'clueweb'==dataset_name else  args.max_candidate_length,
+                        max_mention_length=20  if 'clueweb'==dataset_name else args.max_mention_length,
+                        max_entity_length=20 if 'clueweb'==dataset_name else args.max_entity_length)
                     eval_dataloader = DataLoader(eval_data, batch_size=1,
                                                 collate_fn=functools.partial(collate_fn, is_eval=True))
                     predictions_file = None
@@ -237,8 +240,12 @@ def run(common_args, **task_args):
             logger.info('***** Evaluating: %s *****', dataset_name)
             eval_documents = getattr(dataset, dataset_name)
             eval_data = convert_documents_to_features(
-                eval_documents, args.tokenizer, entity_vocab, 'eval', args.max_seq_length,
-                args.max_candidate_length, args.max_mention_length, args.max_entity_length)
+                eval_documents, args.tokenizer, entity_vocab, 'eval', 
+                200 if 'clueweb'==dataset_name else args.max_seq_length,
+                max_candidate_length=20 if 'clueweb'==dataset_name else  args.max_candidate_length,
+                max_mention_length=20  if 'clueweb'==dataset_name else args.max_mention_length,
+                max_entity_length=20 if 'clueweb'==dataset_name else args.max_entity_length)
+
             eval_dataloader = DataLoader(eval_data, batch_size=1,
                                          collate_fn=functools.partial(collate_fn, is_eval=True))
             predictions_file = None
@@ -360,6 +367,7 @@ def evaluate(args, eval_dataloader, model, entity_vocab, output_file=None):
         entity_attention_mask = inputs.pop('entity_attention_mask')
         input_entity_ids = entity_ids.new_full(entity_ids.size(), 1)  # [MASK]
         entity_length = entity_ids.size(1)
+        assert inputs['entity_position_ids'].max() < 512
         with torch.no_grad():
             logits = model(entity_ids=input_entity_ids, entity_attention_mask=entity_attention_mask, **inputs)[0]
             result = torch.argmax(logits, dim=2).squeeze(0)
