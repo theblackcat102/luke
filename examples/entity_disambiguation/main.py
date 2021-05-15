@@ -130,6 +130,7 @@ def run(common_args, **task_args):
     orig_entity_emb = model_weights['entity_embeddings.entity_embeddings.weight'] # 事前学習済みのエンティティ埋め込み (Ve ~= 1M)
     vocab_size = orig_entity_emb.shape[0]
     print(vocab_size)
+    logger.info("Max candidate length "+str(args.max_candidate_length))
     # if orig_entity_emb.size(0) != len(entity_vocab):
     #     orig_entity_bias = model_weights['entity_predictions.bias']
     #     assert '[UNK]' in orig_entity_vocab
@@ -204,7 +205,7 @@ def run(common_args, **task_args):
                     eval_data = convert_documents_to_features(
                         eval_documents, args.tokenizer, entity_vocab, 'eval', 
                         150 if 'clueweb'==dataset_name else args.max_seq_length,
-                        max_candidate_length=20 if 'clueweb'==dataset_name else  args.max_candidate_length,
+                        max_candidate_length=args.max_candidate_length,
                         max_mention_length=20  if 'clueweb'==dataset_name else args.max_mention_length,
                         max_entity_length=20 if 'clueweb'==dataset_name else args.max_entity_length)
                     eval_dataloader = DataLoader(eval_data, batch_size=1,
@@ -252,7 +253,7 @@ def run(common_args, **task_args):
             eval_data = convert_documents_to_features(
                 eval_documents, args.tokenizer, entity_vocab, 'eval', 
                 150 if 'clueweb'==dataset_name else args.max_seq_length,
-                max_candidate_length=20 if 'clueweb'==dataset_name else  args.max_candidate_length,
+                max_candidate_length=args.max_candidate_length,
                 max_mention_length=20  if 'clueweb'==dataset_name else args.max_mention_length,
                 max_entity_length=20 if 'clueweb'==dataset_name else args.max_entity_length)
             eval_dataloader = DataLoader(eval_data, batch_size=1,
