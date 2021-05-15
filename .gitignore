@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 *.json
 *.jsonl
+*-el-output
 # C extensions
 apex/
 *.so
