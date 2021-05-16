@@ -48,7 +48,7 @@ def cli():
 @click.option('--num-train-epochs', default=10)
 @click.option('--train-batch-size', default=1) # * acm_step =  4 8 16 32 64 
 @click.option('--max-seq-length', default=128) # 512
-@click.option('--max-candidate-length', default=20)
+@click.option('--max-candidate-length', default=30)
 @click.option('--max-entity-length', default=32)
 @click.option('--masked-entity-prob', default=0.9) # default 0.9
 @click.option('--candidate-generation/--no-candidate-generation', default=True)
