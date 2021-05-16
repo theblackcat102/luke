@@ -48,13 +48,13 @@ def cli():
 @click.option('--num-train-epochs', default=10)
 @click.option('--train-batch-size', default=1) # * acm_step =  4 8 16 32 64 
 @click.option('--max-seq-length', default=128) # 512
-@click.option('--max-candidate-length', default=30)
+@click.option('--max-candidate-length', default=20)
 @click.option('--max-entity-length', default=32)
 @click.option('--masked-entity-prob', default=0.9) # default 0.9
 @click.option('--candidate-generation/--no-candidate-generation', default=True)
 @click.option('--use-context-entities/--no-context-entities', default=False)
 @click.option('--context-entity-selection-order', default='highest_prob',
-              type=click.Choice(['natural', 'random', 'highest_prob']))
+              type=click.Choice(['natural', 'random', 'highest_prob', 'confidence']))
 @click.option('--document-split-mode', default='simple', type=click.Choice(['simple', 'per_mention'])) # 使わん
 @click.option('--fix-entity-emb/--update-entity-emb', default=True)
 @click.option('--fix-entity-bias/--update-entity-bias', default=True)
@@ -377,9 +377,30 @@ def evaluate(args, eval_dataloader, model, entity_vocab, output_file=None):
         entity_attention_mask = inputs.pop('entity_attention_mask')
         input_entity_ids = entity_ids.new_full(entity_ids.size(), 1)  # [MASK]
         entity_length = entity_ids.size(1)
-        with torch.no_grad():
-            logits = model(entity_ids=input_entity_ids, entity_attention_mask=entity_attention_mask, **inputs)[0]
-            result = torch.argmax(logits, dim=2).squeeze(0)
+        if args.context_entity_selection_order == 'highest_prob':
+            with torch.no_grad():
+                logits = model(entity_ids=input_entity_ids, entity_attention_mask=entity_attention_mask, **inputs)[0]
+                result = torch.argmax(logits, dim=2).squeeze(0)
+        elif args.context_entity_selection_order == 'natural':
+            masked_val = torch.ones(input_entity_ids.shape)
+            with torch.no_grad():
+                for idx in range(entity_length):
+                    logits = model(entity_ids=input_entity_ids, entity_attention_mask=entity_attention_mask, **inputs)[0]
+                    conf, result = torch.max(logits, dim=2)
+                    masked_val[:, idx] = 0
+                    input_entity_ids[:, idx] = result[:, idx]
+            result = input_entity_ids.squeeze(0)
+        elif args.context_entity_selection_order == 'confidence':
+
+            masked_val = torch.ones(input_entity_ids.shape)
+            with torch.no_grad():
+                for idx in range(entity_length):
+                    logits = model(entity_ids=input_entity_ids, entity_attention_mask=entity_attention_mask, **inputs)[0]
+                    conf, result = torch.max(logits, dim=2)
+                    most_conf = torch.argmax(idx*masked_val)
+                    masked_val[:, most_conf] = 0
+                    input_entity_ids[:, most_conf] = result[:, most_conf]
+            result = input_entity_ids.squeeze(0)
 
         for index in item['target_mention_indices'][0]:
             predictions.append(result[index].item())
