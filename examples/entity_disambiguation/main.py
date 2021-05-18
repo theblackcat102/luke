@@ -382,25 +382,29 @@ def evaluate(args, eval_dataloader, model, entity_vocab, output_file=None):
                 logits = model(entity_ids=input_entity_ids, entity_attention_mask=entity_attention_mask, **inputs)[0]
                 result = torch.argmax(logits, dim=2).squeeze(0)
         elif args.context_entity_selection_order == 'natural':
-            masked_val = torch.ones(input_entity_ids.shape)
+            masked_val = entity_attention_mask.clone()
             with torch.no_grad():
                 for idx in range(entity_length):
                     logits = model(entity_ids=input_entity_ids, entity_attention_mask=entity_attention_mask, **inputs)[0]
                     conf, result = torch.max(logits, dim=2)
-                    masked_val[:, idx] = 0
                     input_entity_ids[:, idx] = result[:, idx]
             result = input_entity_ids.squeeze(0)
         elif args.context_entity_selection_order == 'confidence':
 
-            masked_val = torch.ones(input_entity_ids.shape)
+            masked_val = entity_attention_mask.clone()
             with torch.no_grad():
                 for idx in range(entity_length):
                     logits = model(entity_ids=input_entity_ids, entity_attention_mask=entity_attention_mask, **inputs)[0]
                     conf, result = torch.max(logits, dim=2)
-                    most_conf = torch.argmax(idx*masked_val)
+                    most_conf = torch.argmax(conf*masked_val)
                     masked_val[:, most_conf] = 0
                     input_entity_ids[:, most_conf] = result[:, most_conf]
             result = input_entity_ids.squeeze(0)
+        else:
+            with torch.no_grad():
+                logits = model(entity_ids=input_entity_ids, entity_attention_mask=entity_attention_mask, **inputs)[0]
+                result = torch.argmax(logits, dim=2).squeeze(0)
+
 
         for index in item['target_mention_indices'][0]:
             predictions.append(result[index].item())
