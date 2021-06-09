@@ -38,6 +38,7 @@ class EntityPredictionHead(nn.Module):
 
         return hidden_states
 
+from torch_geometric.nn import GCNConv
 
 class LukePretrainingModel(LukeModel):
     def __init__(self, config: LukeConfig):
@@ -51,6 +52,13 @@ class LukePretrainingModel(LukeModel):
             self.cls.predictions.decoder.weight = self.embeddings.word_embeddings.weight
 
         self.entity_predictions = EntityPredictionHead(config)
+
+        self.gnns = torch.nn.ModuleList()
+        self.num_layer = 3
+        for l in range(self.num_layer):
+            rel_conv = GCNConv(in_channels=config.entity_emb_size, out_channels=config.entity_emb_size)
+            self.gnns.append(rel_conv)
+
         self.entity_predictions.decoder.weight = self.entity_embeddings.entity_embeddings.weight
 
         self.apply(self.init_weights)
@@ -68,6 +76,7 @@ class LukePretrainingModel(LukeModel):
         masked_lm_labels: Optional[torch.LongTensor] = None,
         pos_triplet = None,
         neg_triplet = None,
+        sub_graph = None,
         **kwargs
     ):
         model_dtype = next(self.parameters()).dtype  # for fp16 compatibility
@@ -118,6 +127,23 @@ class LukePretrainingModel(LukeModel):
             transe_loss = self.entity_embeddings.calculate_loss(pos_triplet, neg_triplet)
             ret["transe_loss"] = transe_loss
             ret["loss"] += transe_loss
+
+        if sub_graph is not None:
+
+            x = self.entity_embeddings.entity_embeddings(sub_graph['x'])
+            h_list = [x]
+            for layer in range(self.num_layer):
+                h = self.gnns[layer](h_list[layer], sub_graph['edge_index'])
+                if layer != self.num_layer - 1:
+                    h = torch.relu(h)
+                h_list.append(h)
+            pred_h = h[(sub_graph['x'] == 2).to(sub_graph['x'].device)]
+            outputs =  self.entity_predictions.decoder(pred_h)
+            ret["graph_masked_entity_correct"] = (torch.argmax(outputs, 1).data == sub_graph['y'].data).sum()
+            ret["graph_masked_entity_loss"] = loss_fn(outputs, sub_graph['y'].flatten()) * 0.2
+            ret["graph_masked_entity_total"] = sub_graph['y'].sum()
+
+            ret["loss"] += ret["graph_masked_entity_loss"]
 
         if False:
             masked_lm_mask = masked_lm_labels != -1

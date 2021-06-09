@@ -19,7 +19,8 @@ from transformers import (
     get_constant_schedule_with_warmup,
     get_linear_schedule_with_warmup,
 )
-from luke.pretraining.kg_dataset import Dbpedia, infiniteloop
+from luke.pretraining.kg_dataset import Dbpedia, infiniteloop, NeighbourGraph
+
 from luke.model import LukeConfig
 from luke.optimization import LukeAdamW
 from luke.pretraining.batch_generator import LukePretrainingBatchGenerator, MultilingualBatchGenerator
@@ -27,7 +28,7 @@ from luke.pretraining.dataset import WikipediaPretrainingDataset
 from luke.pretraining.model import LukePretrainingModel
 from luke.utils.model_utils import ENTITY_VOCAB_FILE
 from torch.utils.data import DataLoader
-
+from torch_geometric.data import DataLoader as GeometricDataLoader
 logger = logging.getLogger(__name__)
 
 def freeze_partial_weights(model, freeze_entity=False):
@@ -216,6 +217,12 @@ def run_pretraining(args):
     dbpedia_dataset = Dbpedia('ntee/train.txt', 'train', datasetname='ntee_2014', 
             merge_entity_id=False, merge_rel_id=True,
             entity2id={})
+
+    gcn_dataset = NeighbourGraph('.cache/ntee_2014', graph_size=12)
+    gcn_looper = infiniteloop( GeometricDataLoader(gcn_dataset,
+            batch_size=32,
+            num_workers=6, shuffle=True), to_cuda=True)
+
     config.rel_vocab_size = dbpedia_dataset.relation_size + 1
     config.margin = 1
     looper = infiniteloop( DataLoader(dbpedia_dataset, batch_size=512,
@@ -383,9 +390,16 @@ def run_pretraining(args):
         try:
             kg_batch = next(looper)
 
+            sub_graph = next(gcn_looper).to(device)
+
             batch = {k: torch.from_numpy(v).to(device) for k, v in batch.items()}
             batch['pos_triplet'] = kg_batch[0]
             batch['neg_triplet'] = kg_batch[1]
+            batch['sub_graph'] =  {
+                'x': sub_graph.x,
+                'edge_index': sub_graph.edge_index,
+                'y': sub_graph.y
+            }
 
             result = model(**batch)
             loss = result["loss"]
@@ -447,7 +461,7 @@ def run_pretraining(args):
             summary["batch_run_time"] = current_time - prev_step_time
             prev_step_time = current_time
 
-            for name in ("masked_lm", "masked_entity", "transe_loss"):
+            for name in ("masked_lm", "masked_entity", "transe_loss", "graph_masked_entity"):
                 try:
                     summary[name + "_loss"] = np.concatenate([r[name + "_loss"].flatten() for r in results]).mean()
                     correct = np.concatenate([r[name + "_correct"].flatten() for r in results]).sum()
